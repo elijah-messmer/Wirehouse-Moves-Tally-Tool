@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advisor Net Flow Dashboard</title>
+    <!-- Load the D3.js library -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* General page styling */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 2em;
+            background-color: #f9fafb;
+            color: #374151;
+        }
+
+        /* Container and card styling */
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        .card {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            padding: 1.5em;
+            margin-bottom: 2em;
+        }
+
+        h1, h2 {
+            color: #111827;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 0.5em;
+            margin-top: 0;
+        }
+        
+        /* Filter and button styling */
+        .controls {
+            display: flex;
+            gap: 1em;
+            align-items: center;
+            margin-bottom: 1.5em;
+            flex-wrap: wrap;
+        }
+        
+        .control-group label {
+            font-weight: 500;
+            margin-right: 0.5em;
+        }
+
+        /* Styles for dropdowns */
+        .control-group select {
+            padding: 0.5em 1em;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            background-color: white;
+            font-size: 0.9em;
+        }
+        /* General styles for buttons (padding, etc.) */
+        .control-group button {
+            padding: 0.5em 1em;
+            border-radius: 0.5rem;
+            font-size: 0.9em;
+        }
+
+        .action-btn {
+            background-color: #3b82f6;
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+        .action-btn:hover {
+            background-color: #2563eb;
+        }
+        
+        .download-btn {
+            background-color: #10b981;
+        }
+        .download-btn:hover {
+            background-color: #059669;
+        }
+
+
+        /* Table styling */
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 0.9em;
+        }
+        th, td {
+            border: 1px solid #e5e7eb;
+            padding: 10px 12px;
+            text-align: right;
+        }
+        th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+        }
+        tbody tr:nth-child(odd) {
+            background-color: #f9fafb;
+        }
+
+        /* D3 Chart Styling */
+        .chart-container {
+            position: relative;
+        }
+        .axis-label {
+            font-size: 0.8em;
+            fill: #6b7280;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font: 12px sans-serif;
+            background: #374151;
+            color: white;
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .legend {
+            font-size: 0.9em;
+        }
+        .legend-item {
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Advisor Flow Dashboard</h1>
+        
+        <div class="controls">
+            <!-- Year Range Filters -->
+            <div class="control-group">
+                <label for="start-year">Start Year:</label>
+                <select id="start-year"></select>
+            </div>
+            <div class="control-group">
+                <label for="end-year">End Year:</label>
+                <select id="end-year"></select>
+            </div>
+            <div class="control-group">
+                <button id="filter-btn" class="action-btn">Apply Filter</button>
+            </div>
+             <!-- Download Button -->
+            <div class="control-group" style="margin-left: auto;">
+                 <button id="download-csv" class="action-btn download-btn">Download Data as CSV</button>
+            </div>
+        </div>
+
+        <!-- D3.js Chart -->
+        <div class="card">
+            <h2>Monthly Advisor Flow</h2>
+            <div id="chart-container" class="chart-container">
+                <div id="chart"></div>
+                <div class="tooltip"></div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="card">
+            <h2>Raw Data Table</h2>
+            <div id="results-table">
+                <p>Loading data...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store all data and state globally to allow for filtering and interaction
+        let ALL_DATA = [];
+        let seriesVisibility = {
+            "Starts": true,
+            "Leaves": true,
+            "Net Change": true
+        };
+
+        // Main function to fetch data and build the dashboard
+        async function initializeDashboard() {
+            try {
+                const response = await fetch('results.json');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const rawData = await response.json();
+                
+                ALL_DATA = rawData.data.map(row => {
+                    let obj = {};
+                    rawData.columns.forEach((col, i) => {
+                        obj[col] = row[i];
+                    });
+                    obj.year = new Date(obj.index).getFullYear();
+                    return obj;
+                });
+                
+                setupYearFilters();
+                updateDashboard(); // Initial render with all data
+                
+                document.getElementById('filter-btn').addEventListener('click', updateDashboard);
+
+            } catch (error) {
+                document.getElementById('chart').innerHTML = `<p style="color:red;">Error loading chart data: ${error.message}</p>`;
+                document.getElementById('results-table').innerHTML = `<p style="color:red;">Error loading table data: ${error.message}</p>`;
+            }
+        }
+        
+        function updateDashboard() {
+            const startYear = parseInt(document.getElementById('start-year').value);
+            const endYear = parseInt(document.getElementById('end-year').value);
+            
+            const filteredData = ALL_DATA.filter(d => d.year >= startYear && d.year <= endYear);
+            
+            const tableFormattedData = {
+                columns: Object.keys(filteredData[0] || ALL_DATA[0]).filter(k => k !== 'year'),
+                data: filteredData.map(d => [d.index, d.starts, d.leaves, d.net_change])
+            };
+
+            buildD3Chart(filteredData);
+            buildHtmlTable(tableFormattedData);
+            setupDownloadButton(filteredData);
+        }
+        
+        function setupYearFilters() {
+            const years = [...new Set(ALL_DATA.map(d => d.year))].sort();
+            const startYearSelect = document.getElementById('start-year');
+            const endYearSelect = document.getElementById('end-year');
+
+            years.forEach(year => {
+                startYearSelect.add(new Option(year, year));
+                endYearSelect.add(new Option(year, year));
+            });
+
+            startYearSelect.value = years[0];
+            endYearSelect.value = years[years.length - 1];
+        }
+
+        // --- D3.js Chart Builder ---
+        function buildD3Chart(data) {
+            const container = d3.select("#chart");
+            container.html(''); // Clear previous chart
+
+            const margin = { top: 40, right: 40, bottom: 90, left: 50 };
+            const width = container.node().getBoundingClientRect().width - margin.left - margin.right;
+            const height = 400 - margin.top - margin.bottom;
+
+            const svg = container.append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Scales
+            const x = d3.scaleBand()
+                .domain(data.map(d => d.index))
+                .range([0, width])
+                .padding(0.2);
+
+            const yMin = d3.min(data, d => d.net_change);
+            const yMax = d3.max(data, d => d.net_change);
+            const yDomainBuffer = Math.max(Math.abs(yMin), Math.abs(yMax)) * 0.2 || 1;
+
+            const y = d3.scaleLinear()
+                .domain([yMin - yDomainBuffer, yMax + yDomainBuffer])
+                .range([height, 0]);
+
+            // Axes
+            const xAxis = d3.axisBottom(x)
+                .tickValues(x.domain().filter((d, i) => {
+                    const maxLabels = width / 80;
+                    const skip = Math.ceil(x.domain().length / maxLabels);
+                    return i % skip === 0;
+                }));
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(xAxis)
+                .selectAll("text")
+                .attr("transform", "translate(-10,0)rotate(-45)")
+                .style("text-anchor", "end");
+
+            svg.append("g").call(d3.axisLeft(y));
+            
+            // Tooltip
+            const tooltip = d3.select(".tooltip");
+
+            // Bars for Starts (Positive)
+            svg.selectAll(".bar-starts")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "bar-starts")
+                .attr("x", d => x(d.index))
+                .attr("y", d => y(d.starts))
+                .attr("width", x.bandwidth())
+                .attr("height", d => y(0) - y(d.starts))
+                .attr("fill", "#10b981")
+                .style("display", seriesVisibility["Starts"] ? "block" : "none")
+                .on("mouseover", (event, d) => {
+                    const [posX, posY] = d3.pointer(event, container.node());
+                    tooltip.transition().style("opacity", .9);
+                    tooltip.html(`<strong>${d.index}</strong><br/>Starts: ${d.starts}`)
+                        .style("left", (posX + 10) + "px")
+                        .style("top", (posY - 28) + "px");
+                })
+                .on("mouseout", () => tooltip.transition().style("opacity", 0));
+
+            // Bars for Leaves (Negative)
+            svg.selectAll(".bar-leaves")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "bar-leaves")
+                .attr("x", d => x(d.index))
+                .attr("y", d => y(0))
+                .attr("width", x.bandwidth())
+                .attr("height", d => y(d.leaves * -1) - y(0))
+                .attr("fill", "#ef4444")
+                .style("display", seriesVisibility["Leaves"] ? "block" : "none")
+                 .on("mouseover", (event, d) => {
+                    const [posX, posY] = d3.pointer(event, container.node());
+                    tooltip.transition().style("opacity", .9);
+                    tooltip.html(`<strong>${d.index}</strong><br/>Leaves: ${d.leaves}`)
+                        .style("left", (posX + 10) + "px")
+                        .style("top", (posY - 28) + "px");
+                })
+                .on("mouseout", () => tooltip.transition().style("opacity", 0));
+
+            // Line for Net Change
+            const line = d3.line()
+                .x(d => x(d.index) + x.bandwidth() / 2)
+                .y(d => y(d.net_change));
+
+            svg.append("path")
+                .datum(data)
+                .attr("class", "net-change-line")
+                .attr("fill", "none")
+                .attr("stroke", "#3b82f6")
+                .attr("stroke-width", 2.5)
+                .attr("d", line)
+                .style("display", seriesVisibility["Net Change"] ? "block" : "none");
+
+            // --- NEW: Invisible circles for line chart tooltip ---
+            svg.selectAll(".tooltip-circle")
+                .data(data)
+                .enter().append("circle")
+                .attr("class", "tooltip-circle")
+                .attr("cx", d => x(d.index) + x.bandwidth() / 2)
+                .attr("cy", d => y(d.net_change))
+                .attr("r", 10) // Larger radius for easier hovering
+                .attr("fill", "transparent")
+                .style("display", seriesVisibility["Net Change"] ? "block" : "none")
+                .on("mouseover", (event, d) => {
+                    const [posX, posY] = d3.pointer(event, container.node());
+                    tooltip.transition().style("opacity", .9);
+                    tooltip.html(`<strong>${d.index}</strong><br/>Net Change: ${d.net_change}`)
+                        .style("left", (posX + 10) + "px")
+                        .style("top", (posY - 28) + "px");
+                })
+                .on("mouseout", () => tooltip.transition().style("opacity", 0));
+            
+            // Legend
+            const legendData = [
+                { label: "Starts", color: "#10b981" },
+                { label: "Leaves", color: "#ef4444" },
+                { label: "Net Change", color: "#3b82f6" }
+            ];
+
+            const legend = svg.append("g")
+                .attr("class", "legend")
+                .attr("transform", `translate(0, ${-margin.top + 5})`);
+
+            legendData.forEach((item, i) => {
+                const legendRow = legend.append("g")
+                    .attr("class", "legend-item")
+                    .attr("transform", `translate(${i * 110}, 0)`)
+                    .style("opacity", seriesVisibility[item.label] ? 1 : 0.5)
+                    .on("click", () => {
+                        seriesVisibility[item.label] = !seriesVisibility[item.label];
+                        updateDashboard();
+                    });
+                
+                legendRow.append("rect")
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", item.color);
+                
+                legendRow.append("text")
+                    .attr("x", 20)
+                    .attr("y", 12)
+                    .text(item.label);
+            });
+        }
+
+        // --- HTML Table Builder ---
+        function buildHtmlTable(data) {
+            const tableContainer = document.getElementById('results-table');
+            tableContainer.innerHTML = ''; // Clear previous table or loading text
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+
+            let headerRow = document.createElement('tr');
+            data.columns.forEach(headerText => {
+                let th = document.createElement('th');
+                th.textContent = headerText;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+
+            data.data.forEach(rowData => {
+                let row = document.createElement('tr');
+                rowData.forEach(cellData => {
+                    let td = document.createElement('td');
+                    td.textContent = cellData;
+                    row.appendChild(td);
+                });
+                tbody.appendChild(row);
+            });
+
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            tableContainer.appendChild(table);
+        }
+        
+        // --- Download Button Logic ---
+        function setupDownloadButton(data) {
+            const downloadButton = document.getElementById('download-csv');
+            
+            const newButton = downloadButton.cloneNode(true);
+            downloadButton.parentNode.replaceChild(newButton, downloadButton);
+
+            newButton.addEventListener('click', () => {
+                const headers = Object.keys(data[0] || {});
+                const csvRows = [headers.join(',')];
+                data.forEach(row => {
+                    const values = headers.map(header => `"${row[header]}"`);
+                    csvRows.push(values.join(','));
+                });
+                const csvString = csvRows.join('\n');
+                const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', 'advisor_flow_data.csv');
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        }
+
+        // Run the main function when the page loads
+        document.addEventListener('DOMContentLoaded', initializeDashboard);
+    </script>
+
+</body>
+</html>
