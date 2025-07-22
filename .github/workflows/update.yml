@@ -28,6 +28,8 @@ jobs:
     - name: Install all necessary packages
       run: pip install jupyter pandas requests
     - name: Scraping today's data
+      env:
+        PAT: ${{ secrets.PAT }}
       run: jupyter nbconvert --to notebook --execute "MovesTally.ipynb" --stdout
     - name: Commit and push any changes
       run: |-
